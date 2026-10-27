@@ -35,7 +35,7 @@ def olofsson_area_estimate(
     mapped_areas : array-like of shape (q,)
         Total mapped area (or pixel count) for each map class i.
     class_names : sequence of str, optional
-        Names of the q classes. Defaults to Class_0, Class_1, ...
+        Names of the q classes. Defaults to class_0, class_1, ...
     confidence : float, default 0.95
         Confidence level for two-sided normal confidence intervals.
     """
@@ -47,6 +47,8 @@ def olofsson_area_estimate(
     q = counts.shape[0]
     if areas.ndim != 1 or areas.shape[0] != q:
         raise ValueError("mapped_areas must be a 1D array matching confusion_matrix dimension.")
+    if not np.all(np.isfinite(counts)) or not np.all(np.isfinite(areas)):
+        raise ValueError("confusion_matrix and mapped_areas must contain finite numbers.")
     if np.any(counts < 0) or np.any(areas <= 0):
         raise ValueError("Counts must be non-negative and mapped_areas must be strictly positive.")
     if not (0.0 < confidence < 1.0):
@@ -145,25 +147,32 @@ def allocate_stratified_sample(
     target_overall_se: float = 0.01,
     min_per_class: int = 50,
 ) -> dict[str, np.ndarray | int]:
-    """Compute total sample size and proportional/equal blend allocation (Eq. 13)."""
+    """Compute total sample size and proportional/minimum allocation (Olofsson Eq. 13)."""
     areas = np.asarray(mapped_areas, dtype=np.float64)
     u_i = np.asarray(expected_users_acc, dtype=np.float64)
-    if areas.shape != u_i.shape or areas.ndim != 1:
-        raise ValueError("mapped_areas and expected_users_acc must be 1D arrays of equal length.")
+
+    if areas.shape != u_i.shape or areas.ndim != 1 or len(areas) == 0:
+        raise ValueError("mapped_areas and expected_users_acc must be non-empty 1D arrays of equal length.")
+    if not np.all(np.isfinite(areas)) or np.any(areas <= 0):
+        raise ValueError("mapped_areas must contain finite, strictly positive numbers.")
+    if not np.all(np.isfinite(u_i)) or np.any((u_i <= 0.0) | (u_i >= 1.0)):
+        raise ValueError("expected_users_acc values must be strictly between 0 and 1.")
     if target_overall_se <= 0:
-        raise ValueError("target_overall_se must be positive.")
+        raise ValueError("target_overall_se must be strictly positive.")
+    if min_per_class < 2:
+        raise ValueError("min_per_class must be at least 2.")
 
     weights = areas / areas.sum()
     s_i = np.sqrt(u_i * (1.0 - u_i))
-    total_n = int(np.ceil(((weights * s_i).sum() / target_overall_se) ** 2))
+    raw_n = int(np.ceil(((weights * s_i).sum() / target_overall_se) ** 2))
 
     q = len(areas)
-    if total_n < q * min_per_class:
-        total_n = q * min_per_class
+    target_n = max(raw_n, q * int(min_per_class))
 
-    prop_alloc = np.round(weights * total_n).astype(int)
-    enforced = np.maximum(prop_alloc, min_per_class)
+    prop_alloc = np.round(weights * target_n).astype(int)
+    enforced = np.maximum(prop_alloc, int(min_per_class))
     return {
+        "formula_sample_size": raw_n,
         "total_sample_size": int(enforced.sum()),
         "proportional_allocation": prop_alloc,
         "recommended_allocation": enforced,
