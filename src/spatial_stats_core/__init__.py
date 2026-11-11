@@ -1,4 +1,4 @@
-"""Core validation and uncertainty routines for geospatial and hydrological models."""
+"""Spatial block cross-validation and Olofsson stratified area estimation."""
 
 from .olofsson import OlofssonResult, allocate_stratified_sample, olofsson_area_estimate
 from .spatial_cv import SpatialBlockKFold, assign_spatial_blocks, summarize_fold_distances
